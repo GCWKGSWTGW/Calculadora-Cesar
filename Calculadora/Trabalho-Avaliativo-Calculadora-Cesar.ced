@@ -1,0 +1,585 @@
+;> Inicializacao do apontador da pilha
+;> para que a pilha fique acima da area
+;> de memoria mapeada para entrada e saida
+;> ESTAS DUAS INSTRUCOES DEVEM SER MANTIDAS AQUI !
+          ORG 0                 ; primeira instrucao de qualquer 
+          MOV #65498,R6         ; programa: aponta SP para 65498
+;>-------------------------------------------------<
+;>>                                               <<
+;>>>                                             <<<
+;>>>> INSERIR AQUI O CODIGO DE SEU PROGRAMA !!! <<<<
+;>>>                                             <<<
+;>>                                               <<
+;>-------------------------------------------------<
+
+; ---- TRABALHO AVALIATIVO: calculadora no visor do Cesar ----
+; Uso: digite  numero  operador  numero  =    (operadores + - * /, ate 4 digitos por numero)
+;      Exemplo: 12+34=   mostra   12+34=46          Tecla C: limpa e recomeca
+NOVA_CONTA:
+          JSR R7,_S_LIMPA_VISOR_RAPIDA      ; limpa o visor
+          MOV #65500,PTR_VISOR              ; a escrita comeca no LED 0
+          MOV #BUF_A,PTR_BUF                ; digitos do 1o operando vao para BUF_A
+          CLR NDIG                          ; nenhum digito lido
+          CLR ESTADO                        ; 0 = lendo o 1o operando
+LE_TECLA:
+          JSR R7,GETCH                      ; R0 = codigo ASCII da tecla
+          CMP #67,R0                        ; 'C'
+          BEQ NOVA_CONTA
+          CMP #99,R0                        ; 'c'
+          BEQ NOVA_CONTA
+          CMP #61,R0                        ; '='
+          BEQ TECLA_IGUAL
+          CMP #43,R0                        ; '+'
+          BEQ TECLA_OPER
+          CMP #45,R0                        ; '-'
+          BEQ TECLA_OPER
+          CMP #42,R0                        ; '*'
+          BEQ TECLA_OPER
+          CMP #47,R0                        ; '/'
+          BEQ TECLA_OPER
+          CMP #48,R0                        ; 48 - tecla
+          BGT LE_TECLA                      ; menor que '0': ignora
+          CMP #57,R0                        ; 57 - tecla
+          BLT LE_TECLA                      ; maior que '9': ignora
+          CMP #4,NDIG                       ; 4 - digitos lidos
+          BLE LE_TECLA                      ; ja tem 4 digitos: ignora
+          MOV PTR_BUF,R1                    ; guarda o digito no buffer
+          MOV R0,(R1)+
+          MOV R1,PTR_BUF
+          INC NDIG
+          JSR R7,ECHO                       ; mostra o digito no visor
+          BR LE_TECLA
+
+TECLA_OPER:                                 ; chegou um operador
+          TST ESTADO
+          BNE OPER_IGNORA                   ; ja existe operador: ignora
+          TST NDIG
+          BEQ OPER_IGNORA                   ; falta o 1o numero: ignora
+          MOV R0,OPERADOR                   ; guarda o codigo ASCII do operador
+          JSR R7,ECHO
+          MOV PTR_BUF,R1
+          CLR (R1)                          ; fecha a string do 1o numero (nul)
+          MOV #BUF_B,PTR_BUF                ; proximos digitos vao para BUF_B
+          CLR NDIG
+          MOV #1,ESTADO                     ; 1 = lendo o 2o operando
+OPER_IGNORA:
+          JMP LE_TECLA                      ; volta a ler teclas
+
+TECLA_IGUAL:                                ; chegou o sinal de igual
+          TST ESTADO
+          BEQ IGUAL_IGNORA                  ; falta o operador: ignora
+          TST NDIG
+          BEQ IGUAL_IGNORA                  ; falta o 2o numero: ignora
+          JSR R7,ECHO                       ; mostra o '='
+          MOV PTR_BUF,R1
+          CLR (R1)                          ; fecha a string do 2o numero (nul)
+          MOV #BUF_A,-(R6)                  ; converte o 1o numero: str2int(&NUM_A, BUF_A)
+          MOV #NUM_A,-(R6)
+          JSR R7,STR2INT
+          ADD #4,R6
+          MOV #BUF_B,-(R6)                  ; converte o 2o numero: str2int(&NUM_B, BUF_B)
+          MOV #NUM_B,-(R6)
+          JSR R7,STR2INT
+          ADD #4,R6
+          MOV NUM_A,R0                      ; R0 = 1o operando
+          MOV NUM_B,R1                      ; R1 = 2o operando
+          CMP #43,OPERADOR                  ; escolhe a sub-rotina pelo codigo ASCII
+          BEQ CHAMA_SOMA
+          CMP #45,OPERADOR
+          BEQ CHAMA_SUB
+          CMP #42,OPERADOR
+          BEQ CHAMA_MUL
+          JSR R7,DIVIDE                     ; '/'
+          BR MOSTRA_RES
+CHAMA_SOMA:
+          JSR R7,SOMA
+          BR MOSTRA_RES
+CHAMA_SUB:
+          JSR R7,SUBTRAI
+          BR MOSTRA_RES
+CHAMA_MUL:
+          JSR R7,MULTIPLICA
+MOSTRA_RES:
+          JSR R7,ESCREVE_RESULTADO          ; R0:R1 = resultado, R2 = status
+          JSR R7,GETCH                      ; espera uma tecla para a proxima conta
+          JMP NOVA_CONTA
+IGUAL_IGNORA:
+          JMP LE_TECLA                      ; volta a ler teclas
+          HLT
+
+; ---- sub-rotinas das operacoes: entrada R0 = 1o operando, R1 = 2o operando
+; ---- saida: R0 = parte alta, R1 = parte baixa do resultado (32 bits), R2 = status
+; ----        (0 = positivo, 1 = negativo: resultado em modulo, 2 = erro)
+SOMA:
+          CLR R2
+          ADD R0,R1                         ; R1 = R0 + R1
+          CLR R0
+          RTS R7
+
+SUBTRAI:
+          CLR R2
+          CMP R0,R1                         ; R0 - R1 : C = 1 se R0 < R1
+          BCC SUB_DIRETO                    ; R0 >= R1: resultado positivo
+          MOV #1,R2                         ; R0 < R1: resultado negativo
+          SUB R0,R1                         ; R1 = R1 - R0 (modulo)
+          CLR R0
+          RTS R7
+SUB_DIRETO:
+          SUB R1,R0                         ; R0 = R0 - R1
+          MOV R0,R1
+          CLR R0
+          RTS R7
+
+MULTIPLICA:
+          JSR R7,_S_MULTIPLICAR             ; R0:R1 = R0 x R1 (32 bits)
+          CLR R2
+          RTS R7
+
+DIVIDE:
+          MOV R1,R2                         ; R2 = divisor
+          MOV R0,R1                         ; parte baixa do dividendo = 1o operando
+          CLR R0                            ; parte alta do dividendo = 0
+          JSR R7,_S_DIVIDIR                 ; R0 = quociente, R1 = resto, Z = 1 se divisor = 0
+          BEQ DIV_ZERO
+          MOV R0,R1                         ; resultado = quociente
+          CLR R0
+          CLR R2
+          RTS R7
+DIV_ZERO:
+          CLR R0
+          CLR R1
+          MOV #2,R2                         ; status = erro
+          RTS R7
+
+; ---- ECHO: escreve o caractere de R0 no visor e avanca o ponteiro do visor
+ECHO:
+          MOV R1,-(R6)
+          MOV PTR_VISOR,R1
+          MOV R0,(R1)
+          INC R1
+          MOV R1,PTR_VISOR
+          MOV (R6)+,R1
+          RTS R7
+
+; ---- ESCREVE_RESULTADO: R0:R1 = resultado, R2 = status
+ESCREVE_RESULTADO:
+          CMP #2,R2
+          BEQ ESCREVE_ERRO
+          MOV R0,RES_ALTA
+          MOV R1,RES_BAIXA
+          CMP #1,R2
+          BNE ER_POSITIVO
+          MOV #45,R0                        ; '-'
+          JSR R7,ECHO
+ER_POSITIVO:
+          JSR R7,ESCREVE_NUM32
+          RTS R7
+ESCREVE_ERRO:
+          MOV #69,R0                        ; 'E'
+          JSR R7,ECHO
+          MOV #82,R0                        ; 'R'
+          JSR R7,ECHO
+          MOV #82,R0                        ; 'R'
+          JSR R7,ECHO
+          MOV #79,R0                        ; 'O'
+          JSR R7,ECHO
+          RTS R7
+
+; ---- ESCREVE_NUM32: escreve RES_ALTA:RES_BAIXA em decimal (divisoes sucessivas por 10)
+ESCREVE_NUM32:
+          CLR R4                            ; R4 = quantidade de digitos
+N32_LACO:
+          CLR R0
+          MOV RES_ALTA,R1
+          MOV #10,R2
+          JSR R7,_S_DIVIDIR                 ; R0 = alta / 10, R1 = resto
+          MOV R0,RES_ALTA
+          MOV R1,R0                         ; resto vira a parte alta do dividendo
+          MOV RES_BAIXA,R1
+          MOV #10,R2
+          JSR R7,_S_DIVIDIR                 ; R0 = nova parte baixa, R1 = digito
+          MOV R0,RES_BAIXA
+          ADD #48,R1                        ; digito -> ASCII
+          MOV R1,-(R6)                      ; empilha o digito
+          INC R4
+          TST RES_ALTA
+          BNE N32_LACO                      ; ainda ha algo na parte alta
+          TST RES_BAIXA
+          BNE N32_LACO                      ; ainda ha algo na parte baixa
+N32_ESC:
+          MOV (R6)+,R0                      ; desempilha na ordem correta
+          JSR R7,ECHO
+          SOB R4,N32_ESC
+          RTS R7
+
+
+GETCH:                              ; char getch()  -> R0 = codigo ASCII da tecla
+          TST 65498                 ; ha tecla ? (128 = sim)
+          BEQ GETCH                 ; nao: continua esperando
+          MOV 65499,R0              ; R0 = codigo ASCII
+          CLR 65498                 ; libera o teclado para a proxima tecla
+          RTS R7
+
+STR2INT:                            ; str2int(int *n, char *s)
+                                    ; pilha: [R6]=retorno, [R6+2]=n, [R6+4]=s
+          MOV R0,-(R6)              ; salva R0..R4 (retorno passa a 10(R6), n a 12(R6), s a 14(R6))
+          MOV R1,-(R6)
+          MOV R2,-(R6)
+          MOV R3,-(R6)
+          MOV R4,-(R6)
+          MOV 14(R6),R1             ; R1 = s
+          CLR R2                    ; R2 = valor acumulado
+          CLR R4                    ; R4 = sinal (0 = positivo)
+          CMP #45,(R1)              ; primeiro caractere e '-' ?
+          BNE S2I_DIG
+          INC R4                    ; sim: sinal negativo
+          ADD #2,R1                 ; pula o '-'
+S2I_DIG:
+          MOV (R1)+,R0              ; R0 = proximo caractere
+          BEQ S2I_FIM               ; nul: fim da string
+          SUB #48,R0                ; ASCII -> digito
+          MOV R2,R3
+          ASL R2                    ; acumulado x 2
+          ASL R3
+          ASL R3
+          ASL R3                    ; acumulado x 8
+          ADD R3,R2                 ; acumulado x 10
+          ADD R0,R2                 ; + digito
+          BR S2I_DIG
+S2I_FIM:
+          TST R4
+          BEQ S2I_GRAVA
+          NEG R2                    ; sinal negativo: troca o sinal
+S2I_GRAVA:
+          MOV 12(R6),R1             ; R1 = n (ponteiro)
+          MOV R2,(R1)               ; *n = valor
+          MOV (R6)+,R4              ; restaura R4..R0
+          MOV (R6)+,R3
+          MOV (R6)+,R2
+          MOV (R6)+,R1
+          MOV (R6)+,R0
+          RTS R7
+
+;>---------------------------------------------<
+;> AS SUBROTINAS DEVEM INICIAR SOMENTE APOS A  <
+;> ULTIMA INSTRUCAO CODIFICADA NO PROGRAMA !!  <
+;>---------------------------------------------<
+;>
+;> Subrotina iterativa para "limpar" o visor
+;>
+;> Chamada da subrotina:
+;>
+;> JSR R7,_S_LIMPA_VISOR_ITERATIVA
+;>
+          
+_S_LIMPA_VISOR_ITERATIVA:
+          MOV R0,-(R6)          ; salva R0 na pilha
+          MOV R1,-(R6)          ; salva R1 na pilha
+          MOV #65500,R1         ; move end. do visor p/R1
+          MOV #36,R0            ; move 36 para contador
+__OUTRO_LED:
+          CLR (R1)              ; limpa 1 LED do visor
+          INC R1                ; aponta p/LED seguinte
+          SOB R0,__OUTRO_LED    ; subtrai 1 do contador
+                                ; se <> 0, repete o laco
+          MOV (R6)+,R1          ; restaura R1
+          MOV (R6)+,R0          ; restaura R0
+          RTS R7                ; retorna ao ponto de chamada
+;>
+;>
+;> Subrotina rapida para limpar visor
+;>
+;> Chamada da subrotina:
+;>
+;> JSR R7,_S_LIMPA_VISOR_RAPIDA
+;>
+
+_S_LIMPA_VISOR_RAPIDA:
+          CLR 65500             ; limpa LED 00
+          CLR 65501             ; limpa LED 01
+          CLR 65502             ; limpa LED 02
+          CLR 65503             ; limpa LED 03
+          CLR 65504             ; limpa LED 04
+          CLR 65505             ; limpa LED 05
+          CLR 65506             ; limpa LED 06
+          CLR 65507             ; limpa LED 07
+          CLR 65508             ; limpa LED 08
+          CLR 65509             ; limpa LED 09
+          CLR 65510             ; limpa LED 10
+          CLR 65511             ; limpa LED 11
+          CLR 65512             ; limpa LED 12
+          CLR 65513             ; limpa LED 13
+          CLR 65514             ; limpa LED 14
+          CLR 65515             ; limpa LED 15
+          CLR 65516             ; limpa LED 16
+          CLR 65517             ; limpa LED 17
+          CLR 65518             ; limpa LED 18
+          CLR 65519             ; limpa LED 19
+          CLR 65520             ; limpa LED 20
+          CLR 65521             ; limpa LED 21
+          CLR 65522             ; limpa LED 22
+          CLR 65523             ; limpa LED 23
+          CLR 65524             ; limpa LED 24
+          CLR 65525             ; limpa LED 25
+          CLR 65526             ; limpa LED 26
+          CLR 65527             ; limpa LED 27
+          CLR 65528             ; limpa LED 28
+          CLR 65529             ; limpa LED 29
+          CLR 65530             ; limpa LED 30
+          CLR 65531             ; limpa LED 31
+          CLR 65532             ; limpa LED 32
+          CLR 65533             ; limpa LED 33
+          CLR 65534             ; limpa LED 34
+          CLR 65535             ; limpa LED 35
+          RTS R7                ; retorna ao ponto de chamada
+;>
+;>
+;> Subrotina para escrever no visor
+;>
+;> Chamada da subrotina:
+;>
+;> MOV #tammensagem,R0          ; tamanho da mensagem (em caracteres)
+;> MOV #endmensagem,R1          ; endereco da mensagem a ser escrita no visor
+;> MOV #endvisor,R2             ; endereco do LED onde deve iniciar a mensagem
+;> JSR R7,_S_ESCREVER_NO_VISOR
+;>
+
+_S_ESCREVER_NO_VISOR:
+__VOLTA_ESCR:
+          MOV (R1),R3           ; coloca 2 caracteres em R3
+          ASR R3                ; alinha primeiro caractere
+          ASR R3                ; a direita do registrador,
+          ASR R3                ; porque quando se escreve
+          ASR R3                ; na memoria a partir do
+          ASR R3                ; endereco 65500 apenas o byte
+          ASR R3                ; menos significativo e' escrito
+          ASR R3                ; na posicao correspondente
+          ASR R3                ; a um LED do visor
+          MOV R3,(R2)           ; move para o visor
+          SOB R0,__SEGUNDO      ; se ja moveu todo o texto,
+          RTS R7                ; retorna ao ponto de chamada
+                                ; senao, vai mover o segundo
+                                ; caractere da mesma palavra
+__SEGUNDO:
+          INC R2                ; aponta para proximo LED
+          BEQ __FIM_VISOR2      ; fim do visor - volta ao LED 00
+__CONTINUA2:
+          MOV (R1)+,R3          ; mesmos 2 caracteres em R3 e
+                                ; incrementa apontador do texto
+          MOV R3,(R2)           ; desta vez, move o segundo byte
+          SOB R0,__PROXIMO_LED  ; se ja moveu todo o texto,
+          RTS R7                ; retorna ao ponto de chamada
+__PROXIMO_LED:
+          INC R2                ; senao, aponta proximo LED
+          BNE __VOLTA_ESCR      ; e repete o laco
+                                ; fim do visor - volta ao LED 00
+__FIM_VISOR1:
+          MOV #65500,R2         ; aponta para primeiro LED
+          BR  __VOLTA_ESCR      ; volta a escrever no visor
+__FIM_VISOR2:
+          MOV #65500,R2         ; aponta para primeiro LED
+          BR  __CONTINUA2       ; volta a escrever no visor
+;>
+;>
+;> Subrotina para multiplicar 2 inteiros positivos de 16 bits
+;>
+;> Chamada da subrotina:
+;>
+;> MOV #multiplicando,R0        ; multiplicando no R0
+;> MOV #multiplicador,R1        ; multiplicador no R1
+;> JSR R7,_S_MULTIPLICAR
+;>
+;> No retorno da subrotina:
+;> - R0 contém os 16 msbits do produto
+;> - R1 contém os 16 lsbits do produto
+;> - Código de condição V:
+;>   V = 0 indica que a parte mais significativa do produto (R0) é zero
+;>   V = 1 indica que não é zero, ou seja: se for desprezada ocorre estouro
+;>
+_S_MULTIPLICAR:
+          MOV R2,-(R6)          ; salva R2 na pilha
+          MOV R3,-(R6)          ; salva R3 na pilha
+          MOV #16,R2            ; inicializa contador
+          CLR R3                ; limpa R3
+__INICIO_LACO: 
+          ROR R1                ; lsb do multiplicad. em C
+          BCC __NAO_SOMAR       ; se era zero, nao soma
+          ADD R0,R3             ; acumula multiplicando
+                                ; no produto parcial
+__NAO_SOMAR:
+          ROR R3                ; lsb de R3 vai para C
+          BCC __FIM_LACO        ; se era zero, sai do laco
+          ADD #32768,R1         ; soma 1 ao bit 15 de R1
+__FIM_LACO:
+          SOB R2,__INICIO_LACO  ; decrementa contador e
+                                ; repete se <> 0
+          MOV R3,R0             ; resultado de R3 para R0
+          MOV (R6)+,R3          ; restaura R3
+          MOV (R6)+,R2          ; restaura R2
+          TST R0                ; se R0 <> 0
+          BNE __ALERTA_ESTOURO  ; vai indicar estouro
+          CCC V                 ; senao, desliga V
+          RTS R7                ; retorna ao progr. princ.
+__ALERTA_ESTOURO:
+          SCC V                 ; liga indicador: estouro
+          RTS R7                ; retorna ao ponto de chamada
+;>
+;>
+;> Dividir int. positivo de 32 bits por um de 16 bits
+;>
+;> Chamada da subrotina:
+;>
+;> MOV #msbitsdividendo,R0      ; 16 bits mais significativos do dividendo
+;> MOV #lsbitsdividendo,R1      ; 16 bits menos significativos do dividendo
+;> MOV #divisor,R2              ; divisor (16 bits)
+;> JSR R7,_S_DIVIDIR
+;>
+;> No retorno da subrotina:
+;> - R0 contém o quociente (16 bits)
+;> - R1 contém o resto (16 bits)
+;> - R2 ainda contém o divisor, inalterado (16 bits)
+;> - Códigos de condição:
+;>   V = 1 indica que ocorreu estouro na divisão (quociente não cabe em 16 bits)
+;>   Z = 1 indica que ocorreu uma tentativa de divisão por zero
+;>   Nestes dois casos, R0, R1 e R2 não são alterados pela subrotina
+;>
+
+_S_DIVIDIR:
+          TST R2                ; testa divisor
+          BNE __NAO_ZERO        ; se <> zero, continua
+          CCC V                 ; indica divisao por zero
+          RTS R7                ; retorna ao ponto de chamada
+
+__NAO_ZERO:
+          CMP R0,R2             ; testa se dividendo(msb)
+                                ; e' >= que o divisor
+          BCC __INDICA_ESTOURO  ; se for, indicar estouro
+                                ; note: BCC equivale a um
+                                ; BGE para int. positivos
+;>
+          MOV R3,-(R6)          ; salva R3 na pilha
+          MOV R4,-(R6)          ; salva R4 na pilha
+          MOV R5,-(R6)          ; salva R5 na pilha
+          MOV R0,R3             ; copia dividendo para
+          MOV R1,R4             ; R3 e R4 (=q no final)
+          MOV #16,R5            ; inicializa contador
+          ASL R4                ; desloca dividendo p/a
+          ROL R3                ; esquerda e abre espaco
+          BCS __SUBTRAI_DIVISOR ; p/um bit do quociente
+          CMP R3,R2             ; se n+1 msbits do divid.
+          BCS __BIT_ZERO        ; maiores que divisor (= BLT p/inteiros positivos)
+__SUBTRAI_DIVISOR:
+          SUB R2,R3             ; subtrai divisor e
+          INC R4                ; ajusta bit do quociente
+__BIT_ZERO:
+          SOB R5,16             ; decr. R5; se <>0, repete
+          MOV R3,R1             ; copia resto para R1
+          MOV R4,R0             ; copia quociente p/R0
+          MOV (R6)+,R5          ; restaura
+          MOV (R6)+,R4          ; registradores
+          MOV (R6)+,R3          ; de trabalho
+          CCC V Z               ; limpa cod. de condicao
+          RTS R7                ; retorna ao ponto de chamada
+;>
+__INDICA_ESTOURO:
+          SCC V                 ; indica overflow e nao
+          CCC Z                 ; divisao por zero
+          RTS R7                ; retorna ao ponto de chamada
+
+;> Subrotina iterativa para ler um caracter
+;>
+;> Chamada da subrotina:
+;>
+;> JSR R7,_S_LER_CARACTER
+;>
+          
+_S_LER_CARACTER:
+          MOV R0,-(R6)          ; salva R0 na pilha
+          MOV R1,-(R6)          ; salva R1 na pilha
+          
+          MOV #65498,R3
+          CLR (R3)
+          TST (R3)
+          BEQ -4
+
+          MOV (R6)+,R1          ; restaura R1
+          MOV (R6)+,R0          ; restaura R0
+          RTS R7                ; retorna ao ponto de chamada
+
+;> Subrotina iterativa para ler e mostrar caracter no visor
+;>
+;> Chamada da subrotina:
+;>
+;> JSR R7,_S_LER_CARACTER_VISOR
+;>
+          
+_S_LER_CARACTER_VISOR:
+          MOV R0,-(R6)          ; salva R0 na pilha
+          MOV R1,-(R6)          ; salva R1 na pilha
+          
+          MOV #65498,R3
+          CLR (R3)
+          TST (R3)
+          BEQ -4
+          MOV 65499, 65500
+          BR -14
+
+          MOV (R6)+,R1          ; restaura R1
+          MOV (R6)+,R0          ; restaura R0
+          RTS R7                ; retorna ao ponto de chamada
+
+;> Subrotina iterativa para ler e mostrar string no visor
+;>
+;> Chamada da subrotina:
+;>
+;> JSR R7,_S_LER_CARACTERES_VISOR
+;>
+          
+_S_LER_CARACTERES_VISOR:
+          MOV R0,-(R6)          ; salva R0 na pilha
+          MOV R1,-(R6)          ; salva R1 na pilha
+          
+          MOV #65498,R3         ; Carrega o endereço 65498 em R3
+          MOV #65000,R1         ; Carrega o endereço 65500 em R1 (inicio do Visor)
+          CLR (R3)              ; Prepara a nova leitura
+          TST (R3)              ; Testa se um caracter foi digitado
+          BEQ -4                ; Enquanto for zero repete o teste
+          MOV 65499, (R1)       ; Move o caracter lido para o cursor
+          INC R1                ; Incrementa R1
+          BEQ __FIM_LER         ; Se R1=0, retorna          
+          BR -16                ; Senão retorna para ler mais caracteres
+__FIM_LER:
+          MOV (R6)+,R1          ; restaura R1
+          MOV (R6)+,R0          ; restaura R0
+          RTS R7                ; retorna ao ponto de chamada
+
+;>
+;> Identificacao da versao da biblioteca - e' exibida no visor
+;>
+          ORG 65500             ; ajusta endereco de inicio (LED 01 do visor)
+          DAB '* BibCesar.ced Versao 8+ 08/04/19 *'
+;>
+;> Esta versão apenas incorpora comentários sobre os resultados devolvidos pelas
+;> subrotinas de multiplicação e divisão de inteiros positivos.
+
+;> ---- DADOS DO PROGRAMA (area de dados a partir de 1024) ----
+ORG 1536
+PTR_VISOR:  dw 0                  ; proximo LED a escrever
+PTR_BUF:    dw 0                  ; proxima posicao do buffer de digitos
+NDIG:       dw 0                  ; digitos lidos no operando atual
+ESTADO:     dw 0                  ; 0 = lendo o 1o operando, 1 = lendo o 2o
+OPERADOR:   dw 0                  ; codigo ASCII do operador (+ - * /)
+NUM_A:      dw 0                  ; 1o operando (inteiro)
+NUM_B:      dw 0                  ; 2o operando (inteiro)
+RES_ALTA:   dw 0                  ; resultado (32 bits): parte alta
+RES_BAIXA:  dw 0                  ; resultado (32 bits): parte baixa
+BUF_A:      dw 0                  ; digitos do 1o operando (ate 4 + nul)
+            dw 0
+            dw 0
+            dw 0
+            dw 0
+BUF_B:      dw 0                  ; digitos do 2o operando (ate 4 + nul)
+            dw 0
+            dw 0
+            dw 0
+            dw 0
